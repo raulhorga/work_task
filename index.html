@@ -16,6 +16,7 @@
     </div>
     <div class="top-actions">
       <div id="syncBadge" class="sync-badge"><i></i><span id="syncText">Conectare…</span></div>
+      <button id="themeToggle" class="btn btn-ghost theme-toggle" type="button" aria-label="Schimbă tema" title="Dark mode"><span id="themeIcon">☾</span><span id="themeLabel">Dark</span></button>
       <button id="syncNow" class="btn btn-ghost" type="button">↻ Sincronizează</button>
       <button id="openTaskTop" class="btn btn-primary" type="button">＋ Task nou</button>
     </div>
@@ -57,108 +58,45 @@
       <select id="statusFilter" aria-label="Filtru status"><option value="">Toate statusurile</option></select>
       <select id="ownerFilter" aria-label="Filtru owner"><option value="">Toți responsabilii</option></select>
       <select id="projectFilter" aria-label="Filtru proiect"><option value="">Toate proiectele</option></select>
-      <select id="sortSelect" aria-label="Sortare">
-        <option value="updated">Actualizate recent</option>
-        <option value="due">Deadline</option>
-        <option value="priority">Prioritate</option>
-        <option value="progress">Progres</option>
-      </select>
-      <div class="view-switch" aria-label="Mod afișare">
-        <button class="view-btn active" data-view="table" title="Listă">☷</button>
-        <button class="view-btn" data-view="board" title="Kanban">▦</button>
-      </div>
+      <select id="sortSelect" aria-label="Sortare"><option value="updated">Actualizate recent</option><option value="due">Deadline</option><option value="priority">Prioritate</option><option value="progress">Progres</option></select>
+      <div class="view-switch" aria-label="Mod afișare"><button class="view-btn active" data-view="table" title="Listă">☷</button><button class="view-btn" data-view="board" title="Kanban">▦</button></div>
     </section>
 
     <section class="workspace">
       <div id="contextRail" class="context-rail"></div>
       <div class="task-area">
         <div id="taskTableWrap" class="table-card">
-          <div class="table-head">
-            <span>Task</span><span>Responsabil</span><span>Status</span><span>Progres</span><span>Start</span><span>Deadline</span><span>Ultimul update</span><span></span>
-          </div>
+          <div class="table-head"><span>Task</span><span>Responsabil</span><span>Status</span><span>Progres</span><span>Start</span><span>Deadline</span><span>Ultimul update</span><span></span></div>
           <div id="taskTable" class="task-table"></div>
         </div>
         <div id="kanbanBoard" class="kanban" hidden></div>
-        <div id="emptyState" class="empty-state" hidden>
-          <div>✓</div><h3>Niciun task aici</h3><p>Adaugă primul task sau modifică filtrele.</p><button class="btn btn-primary" id="emptyAdd" type="button">＋ Adaugă task</button>
-        </div>
+        <div id="emptyState" class="empty-state" hidden><div>✓</div><h3>Niciun task aici</h3><p>Adaugă primul task sau modifică filtrele.</p><button class="btn btn-primary" id="emptyAdd" type="button">＋ Adaugă task</button></div>
       </div>
     </section>
 
-    <footer class="data-footer">
-      <div><strong>Live data</strong><span>Sincronizare automată la 15 secunde · modificările sunt salvate în foile EtherCalc.</span></div>
-      <div id="sheetLinks" class="sheet-links"></div>
-    </footer>
+    <footer class="data-footer"><div><strong>Live data</strong><span>Sincronizare automată la 15 secunde · modificările sunt salvate în foile EtherCalc.</span></div><div id="sheetLinks" class="sheet-links"></div></footer>
   </main>
 
-  <dialog id="taskDialog" class="modal modal-task">
-    <form id="taskForm" method="dialog" novalidate>
-      <div class="modal-header"><div><p class="eyebrow">TASK</p><h2 id="taskDialogTitle">Task nou</h2></div><button class="icon-btn" id="closeTask" type="button">×</button></div>
-      <input id="taskId" type="hidden" />
-      <div class="form-grid">
-        <label class="field full"><span>Titlu *</span><input id="taskTitle" required maxlength="160" placeholder="Ce trebuie făcut?" /></label>
-        <label class="field full"><span>Descriere</span><textarea id="taskDescription" rows="3" maxlength="1200" placeholder="Context, rezultat așteptat, linkuri…"></textarea></label>
-        <label class="field"><span>Status</span><select id="taskStatus"></select></label>
-        <label class="field"><span>Prioritate</span><select id="taskPriority"><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select></label>
-        <label class="field"><span>Progres (%)</span><input id="taskProgress" type="number" min="0" max="100" step="5" value="0" /></label>
-        <label class="field"><span>Responsabil</span><select id="taskOwner"></select></label>
-        <label class="field"><span>Data start</span><input id="taskStart" type="date" /></label>
-        <label class="field"><span>Deadline</span><input id="taskDue" type="date" /></label>
-        <label id="taskProjectGroupField" class="field"><span>Categorie proiect</span><select id="taskProjectGroup"></select></label>
-        <label id="taskProjectField" class="field"><span>Proiect</span><select id="taskProject"></select></label>
-        <label class="field full"><span>Participanți</span><div id="taskAssignees" class="check-grid"></div></label>
-        <label class="field full"><span>Tag-uri</span><input id="taskTags" maxlength="240" placeholder="Ex: IT, audit, urgent (separate prin virgulă)" /></label>
-      </div>
-      <div class="modal-footer"><button id="deleteTask" class="btn btn-danger" type="button" hidden>Șterge</button><span></span><button id="cancelTask" class="btn btn-ghost" type="button">Renunță</button><button class="btn btn-primary" type="submit">Salvează task</button></div>
-    </form>
-  </dialog>
+  <dialog id="taskDialog" class="modal modal-task"><form id="taskForm" method="dialog" novalidate><div class="modal-header"><div><p class="eyebrow">TASK</p><h2 id="taskDialogTitle">Task nou</h2></div><button class="icon-btn" id="closeTask" type="button">×</button></div><input id="taskId" type="hidden" /><div class="form-grid">
+    <label class="field full"><span>Titlu *</span><input id="taskTitle" required maxlength="160" placeholder="Ce trebuie făcut?" /></label>
+    <label class="field full"><span>Descriere</span><textarea id="taskDescription" rows="3" maxlength="1200" placeholder="Context, rezultat așteptat, linkuri…"></textarea></label>
+    <label class="field"><span>Status</span><select id="taskStatus"></select></label><label class="field"><span>Prioritate</span><select id="taskPriority"><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select></label>
+    <label class="field"><span>Progres (%)</span><input id="taskProgress" type="number" min="0" max="100" step="5" value="0" /></label><label class="field"><span>Responsabil</span><select id="taskOwner"></select></label>
+    <label class="field"><span>Data start</span><input id="taskStart" type="date" /></label><label class="field"><span>Deadline</span><input id="taskDue" type="date" /></label>
+    <label id="taskProjectGroupField" class="field"><span>Categorie proiect</span><select id="taskProjectGroup"></select></label><label id="taskProjectField" class="field"><span>Proiect</span><select id="taskProject"></select></label>
+    <label class="field full"><span>Participanți</span><div id="taskAssignees" class="check-grid"></div></label><label class="field full"><span>Tag-uri</span><input id="taskTags" maxlength="240" placeholder="Ex: IT, audit, urgent (separate prin virgulă)" /></label>
+  </div><div class="modal-footer"><button id="deleteTask" class="btn btn-danger" type="button" hidden>Șterge</button><span></span><button id="cancelTask" class="btn btn-ghost" type="button">Renunță</button><button class="btn btn-primary" type="submit">Salvează task</button></div></form></dialog>
 
-  <dialog id="detailDialog" class="modal modal-detail">
-    <div class="detail-shell">
-      <div class="modal-header detail-header"><div><p class="eyebrow">TASK DETAILS & TRACEABILITY</p><h2 id="detailTitle">Task</h2></div><button class="icon-btn" id="closeDetail" type="button">×</button></div>
-      <div id="detailMeta" class="detail-meta"></div>
-      <div class="detail-grid">
-        <section class="detail-panel">
-          <div class="section-heading"><div><p class="eyebrow">WEEKLY PROGRESS</p><h3>Comentarii & update-uri</h3></div></div>
-          <form id="commentForm" class="comment-form">
-            <div class="comment-form-row"><select id="commentType"><option value="progress">Progress</option><option value="note">Notă</option><option value="blocker">Blocker</option><option value="decision">Decizie</option></select><input id="commentProgress" type="number" min="0" max="100" step="5" placeholder="% progres" /></div>
-            <textarea id="commentText" rows="3" maxlength="1200" required placeholder="Ce s-a schimbat săptămâna aceasta?"></textarea>
-            <button class="btn btn-primary" type="submit">＋ Adaugă update</button>
-          </form>
-          <div id="commentTimeline" class="timeline"></div>
-        </section>
-        <section class="detail-panel">
-          <div class="section-heading"><div><p class="eyebrow">TRACEABILITY</p><h3>Istoric modificări</h3></div></div>
-          <div id="historyTimeline" class="timeline timeline-history"></div>
-        </section>
-      </div>
-      <div class="modal-footer"><span></span><button id="editFromDetail" class="btn btn-soft" type="button">✎ Editează task</button><button id="doneFromDetail" class="btn btn-primary" type="button">✓ Marchează Done</button></div>
-    </div>
-  </dialog>
+  <dialog id="detailDialog" class="modal modal-detail"><div class="detail-shell"><div class="modal-header detail-header"><div><p class="eyebrow">TASK DETAILS & TRACEABILITY</p><h2 id="detailTitle">Task</h2></div><button class="icon-btn" id="closeDetail" type="button">×</button></div><div id="detailMeta" class="detail-meta"></div><div class="detail-grid">
+    <section class="detail-panel"><div class="section-heading"><div><p class="eyebrow">WEEKLY PROGRESS</p><h3>Comentarii & update-uri</h3></div></div><form id="commentForm" class="comment-form"><div class="comment-form-row"><select id="commentType"><option value="progress">Progress</option><option value="note">Notă</option><option value="blocker">Blocker</option><option value="decision">Decizie</option></select><input id="commentProgress" type="number" min="0" max="100" step="5" placeholder="% progres" /></div><textarea id="commentText" rows="3" maxlength="1200" required placeholder="Ce s-a schimbat săptămâna aceasta?"></textarea><button class="btn btn-primary" type="submit">＋ Adaugă update</button></form><div id="commentTimeline" class="timeline"></div></section>
+    <section class="detail-panel"><div class="section-heading"><div><p class="eyebrow">TRACEABILITY</p><h3>Istoric modificări</h3></div></div><div id="historyTimeline" class="timeline timeline-history"></div></section>
+  </div><div class="modal-footer"><span></span><button id="editFromDetail" class="btn btn-soft" type="button">✎ Editează task</button><button id="doneFromDetail" class="btn btn-primary" type="button">✓ Marchează Done</button></div></div></dialog>
 
-  <dialog id="memberDialog" class="modal modal-small">
-    <form id="memberForm" method="dialog">
-      <div class="modal-header"><div><p class="eyebrow">ECHIPĂ</p><h2>Adaugă membru</h2></div><button class="icon-btn" id="closeMember" type="button">×</button></div>
-      <div class="form-grid"><label class="field"><span>Inițiale / cod *</span><input id="memberCode" required maxlength="24" placeholder="Ex: A.B" /></label><label class="field"><span>Nume (opțional)</span><input id="memberName" maxlength="100" placeholder="Nume complet" /></label><label class="field full"><span>Rol (opțional)</span><input id="memberRole" maxlength="100" placeholder="Ex: Automation Engineer" /></label></div>
-      <div class="modal-footer"><span></span><button id="cancelMember" class="btn btn-ghost" type="button">Renunță</button><button class="btn btn-primary" type="submit">Adaugă membru</button></div>
-    </form>
-  </dialog>
+  <dialog id="memberDialog" class="modal modal-small"><form id="memberForm" method="dialog"><div class="modal-header"><div><p class="eyebrow">ECHIPĂ</p><h2>Adaugă membru</h2></div><button class="icon-btn" id="closeMember" type="button">×</button></div><div class="form-grid"><label class="field"><span>Inițiale / cod *</span><input id="memberCode" required maxlength="24" placeholder="Ex: A.B" /></label><label class="field"><span>Nume (opțional)</span><input id="memberName" maxlength="100" placeholder="Nume complet" /></label><label class="field full"><span>Rol (opțional)</span><input id="memberRole" maxlength="100" placeholder="Ex: Automation Engineer" /></label></div><div class="modal-footer"><span></span><button id="cancelMember" class="btn btn-ghost" type="button">Renunță</button><button class="btn btn-primary" type="submit">Adaugă membru</button></div></form></dialog>
 
-  <dialog id="projectDialog" class="modal modal-small">
-    <form id="projectForm" method="dialog">
-      <div class="modal-header"><div><p class="eyebrow">PROIECTE</p><h2>Adaugă proiect</h2></div><button class="icon-btn" id="closeProject" type="button">×</button></div>
-      <div class="form-grid"><label class="field full"><span>Categorie *</span><select id="projectGroup"></select></label><label class="field full"><span>Nume proiect *</span><input id="projectName" required maxlength="120" placeholder="Ex: MES Upgrade" /></label><label class="field full"><span>Membri proiect</span><div id="projectMembers" class="check-grid"></div></label></div>
-      <div class="modal-footer"><span></span><button id="cancelProject" class="btn btn-ghost" type="button">Renunță</button><button class="btn btn-primary" type="submit">Adaugă proiect</button></div>
-    </form>
-  </dialog>
+  <dialog id="projectDialog" class="modal modal-small"><form id="projectForm" method="dialog"><div class="modal-header"><div><p class="eyebrow">PROIECTE</p><h2>Adaugă proiect</h2></div><button class="icon-btn" id="closeProject" type="button">×</button></div><div class="form-grid"><label class="field full"><span>Categorie *</span><select id="projectGroup"></select></label><label class="field full"><span>Nume proiect *</span><input id="projectName" required maxlength="120" placeholder="Ex: MES Upgrade" /></label><label class="field full"><span>Membri proiect</span><div id="projectMembers" class="check-grid"></div></label></div><div class="modal-footer"><span></span><button id="cancelProject" class="btn btn-ghost" type="button">Renunță</button><button class="btn btn-primary" type="submit">Adaugă proiect</button></div></form></dialog>
 
-  <dialog id="projectMemberDialog" class="modal modal-small">
-    <form id="projectMemberForm" method="dialog">
-      <div class="modal-header"><div><p class="eyebrow">PROIECTE</p><h2>Membri proiect</h2></div><button class="icon-btn" id="closeProjectMember" type="button">×</button></div>
-      <div class="form-grid"><label class="field full"><span>Proiect *</span><select id="projectMemberProject"></select></label><label class="field full"><span>Membri alocați</span><div id="projectMemberChecks" class="check-grid"></div></label></div>
-      <div class="modal-footer"><span></span><button id="cancelProjectMember" class="btn btn-ghost" type="button">Renunță</button><button class="btn btn-primary" type="submit">Salvează membrii</button></div>
-    </form>
-  </dialog>
+  <dialog id="projectMemberDialog" class="modal modal-small"><form id="projectMemberForm" method="dialog"><div class="modal-header"><div><p class="eyebrow">PROIECTE</p><h2>Membri proiect</h2></div><button class="icon-btn" id="closeProjectMember" type="button">×</button></div><div class="form-grid"><label class="field full"><span>Proiect *</span><select id="projectMemberProject"></select></label><label class="field full"><span>Membri alocați</span><div id="projectMemberChecks" class="check-grid"></div></label></div><div class="modal-footer"><span></span><button id="cancelProjectMember" class="btn btn-ghost" type="button">Renunță</button><button class="btn btn-primary" type="submit">Salvează membrii</button></div></form></dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
