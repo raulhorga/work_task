@@ -14,3 +14,12 @@ Aplicație web statică pentru monitorizarea task-urilor personale, ale echipei 
 
 ## Rulare
 Publică `index.html`, `styles.css` și `app.js` în același folder pe un server static.
+
+
+## Limbă / Language
+
+Interfața include un buton **🌐 EN / RO** în bara de sus. Schimbarea limbii actualizează instantaneu textele, butoanele, filtrele, statusurile, prioritățile, mesajele, dialogurile și antetele exportului Excel între română și engleză. Preferința este memorată local în browser.
+
+## Temă
+
+Butonul Dark / Light păstrează tema aleasă în browser și funcționează independent de limba interfeței.
