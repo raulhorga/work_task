@@ -22,16 +22,15 @@
   </header>
 
   <main class="shell">
-    <section class="hero">
-      <div>
-        <p class="eyebrow">TASK & PROJECT MONITORING</p>
-        <h1>Tot ce trebuie urmărit,<br><span>într-un singur loc.</span></h1>
-        <p class="hero-copy">Task-uri personale, activitatea echipei și proiectele fabricii, cu status, progres, comentarii datate și trasabilitate completă.</p>
+    <section class="hero hero--compact hero--mini">
+      <div class="hero-copy-block">
+        <h1>TASK &amp; PROJECT MONITORING</h1>
       </div>
       <div class="hero-kpis" id="heroKpis"></div>
     </section>
 
     <nav class="category-tabs" aria-label="Categorii">
+      <button class="tab" data-scope="all"><span class="tab-icon">✦</span><span><strong>Toate task-urile</strong><small id="allCount">0 task-uri</small></span></button>
       <button class="tab active" data-scope="personal"><span class="tab-icon">◉</span><span><strong>Personale</strong><small id="personalCount">0 task-uri</small></span></button>
       <button class="tab" data-scope="team"><span class="tab-icon">◎</span><span><strong>Echipă</strong><small id="teamCount">0 task-uri</small></span></button>
       <button class="tab" data-scope="projects"><span class="tab-icon">▦</span><span><strong>Proiecte</strong><small id="projectsCount">0 task-uri</small></span></button>
