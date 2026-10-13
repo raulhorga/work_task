@@ -1,0 +1,261 @@
+'use strict';
+
+const BASE = 'https://calc.domainepublic.net';
+const SYNC_MS = 15000;
+const SHEETS = {
+  personal: {room:'0y4rcf8ujgyf', label:'Personale', url:'https://calc.domainepublic.net/0y4rcf8ujgyf'},
+  team: {room:'5wt3mqujqovw', label:'Echipă', url:'https://calc.domainepublic.net/5wt3mqujqovw'},
+  projects: {room:'if1566u5k4ly', label:'Proiecte', url:'https://calc.domainepublic.net/if1566u5k4ly'}
+};
+const STATUSES = ['Backlog','Open','In Progress','Waiting','Blocked','Delayed','Done','Cancelled'];
+const PRIORITY_ORDER = {Critical:4,High:3,Medium:2,Low:1};
+const PROJECT_GROUPS = ['Linii de Producție','Proiecte Fabrică','Proiecte Globale','Palantir'];
+const DEFAULT_MEMBERS = [
+  {code:'S.A',name:'',role:''},{code:'M.I',name:'',role:''},{code:'O.S',name:'',role:''},{code:'P.A',name:'',role:''},{code:'A.P',name:'',role:''}
+];
+const DEFAULT_PROJECTS = [
+  ['Linii de Producție','SCA'],['Linii de Producție','SMT'],
+  ['Proiecte Fabrică','IT Cost'],['Proiecte Fabrică','FES'],['Proiecte Fabrică','OT Cybersecurity'],['Proiecte Fabrică','RoboTrainer'],
+  ['Proiecte Globale','AutomaticBF'],['Proiecte Globale','CRP'],
+  ['Palantir','FPY'],['Palantir','Hackathon'],['Palantir','SMT Center']
+];
+const HEADER = ['record_type','id','title','description','status','priority','progress','start_date','due_date','owner','assignees','project_group','project_name','tags','created_at','updated_at','completed_at','comments_json','history_json','extra_json'];
+
+const state = {
+  scope:'personal', view:'table', selectedContext:'all', quickFilter:'', syncing:false, saving:false,
+  sheets:{personal:[],team:[],projects:[]}, lastSync:null, detailTaskId:null,
+  unsafeSheets:new Set()
+};
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const el = {
+  syncBadge:$('#syncBadge'),syncText:$('#syncText'),syncNow:$('#syncNow'),openTaskTop:$('#openTaskTop'),heroKpis:$('#heroKpis'),
+  personalCount:$('#personalCount'),teamCount:$('#teamCount'),projectsCount:$('#projectsCount'),scopeEyebrow:$('#scopeEyebrow'),scopeTitle:$('#scopeTitle'),scopeSubtitle:$('#scopeSubtitle'),
+  addMember:$('#addMember'),addProject:$('#addProject'),downloadExcel:$('#downloadExcel'),addTask:$('#addTask'),summaryGrid:$('#summaryGrid'),
+  searchInput:$('#searchInput'),statusFilter:$('#statusFilter'),ownerFilter:$('#ownerFilter'),projectFilter:$('#projectFilter'),sortSelect:$('#sortSelect'),contextRail:$('#contextRail'),
+  taskTableWrap:$('#taskTableWrap'),taskTable:$('#taskTable'),kanbanBoard:$('#kanbanBoard'),emptyState:$('#emptyState'),emptyAdd:$('#emptyAdd'),sheetLinks:$('#sheetLinks'),toast:$('#toast'),
+  taskDialog:$('#taskDialog'),taskForm:$('#taskForm'),taskDialogTitle:$('#taskDialogTitle'),taskId:$('#taskId'),taskTitle:$('#taskTitle'),taskDescription:$('#taskDescription'),taskStatus:$('#taskStatus'),taskPriority:$('#taskPriority'),taskProgress:$('#taskProgress'),taskOwner:$('#taskOwner'),taskStart:$('#taskStart'),taskDue:$('#taskDue'),taskProjectGroupField:$('#taskProjectGroupField'),taskProjectField:$('#taskProjectField'),taskProjectGroup:$('#taskProjectGroup'),taskProject:$('#taskProject'),taskAssignees:$('#taskAssignees'),taskTags:$('#taskTags'),deleteTask:$('#deleteTask'),closeTask:$('#closeTask'),cancelTask:$('#cancelTask'),
+  detailDialog:$('#detailDialog'),detailTitle:$('#detailTitle'),detailMeta:$('#detailMeta'),commentForm:$('#commentForm'),commentType:$('#commentType'),commentProgress:$('#commentProgress'),commentText:$('#commentText'),commentTimeline:$('#commentTimeline'),historyTimeline:$('#historyTimeline'),editFromDetail:$('#editFromDetail'),doneFromDetail:$('#doneFromDetail'),closeDetail:$('#closeDetail'),
+  memberDialog:$('#memberDialog'),memberForm:$('#memberForm'),memberCode:$('#memberCode'),memberName:$('#memberName'),memberRole:$('#memberRole'),closeMember:$('#closeMember'),cancelMember:$('#cancelMember'),
+  projectDialog:$('#projectDialog'),projectForm:$('#projectForm'),projectGroup:$('#projectGroup'),projectName:$('#projectName'),projectMembers:$('#projectMembers'),closeProject:$('#closeProject'),cancelProject:$('#cancelProject'),
+  projectMemberDialog:$('#projectMemberDialog'),projectMemberForm:$('#projectMemberForm'),projectMemberProject:$('#projectMemberProject'),projectMemberChecks:$('#projectMemberChecks'),closeProjectMember:$('#closeProjectMember'),cancelProjectMember:$('#cancelProjectMember')
+};
+
+function uid(){return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`}
+function nowISO(){return new Date().toISOString()}
+function todayISO(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function esc(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+function safeJson(v,fallback=[]){try{const x=JSON.parse(v||'');return x??fallback}catch{return fallback}}
+function fmtDate(iso){if(!iso)return '—';const d=new Date(`${iso}T12:00:00`);return Number.isNaN(d.getTime())?iso:d.toLocaleDateString('ro-RO',{day:'2-digit',month:'short',year:'2-digit'})}
+function fmtDateTime(iso){if(!iso)return '—';const d=new Date(iso);return Number.isNaN(d.getTime())?iso:d.toLocaleString('ro-RO',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+function relativeUpdate(iso){if(!iso)return '—';const ms=Date.now()-new Date(iso).getTime();if(ms<60000)return 'acum';const h=Math.floor(ms/3600000);if(h<24)return `acum ${h}h`;const d=Math.floor(h/24);if(d<7)return `acum ${d}z`;return fmtDateTime(iso)}
+function isOverdue(t){return !!t.due_date && t.status!=='Done' && t.status!=='Cancelled' && t.due_date < todayISO()}
+function daysUntil(iso){if(!iso)return Infinity;const a=new Date(`${todayISO()}T00:00:00`),b=new Date(`${iso}T00:00:00`);return Math.ceil((b-a)/86400000)}
+function showToast(msg){el.toast.textContent=msg;el.toast.classList.add('show');clearTimeout(showToast.t);showToast.t=setTimeout(()=>el.toast.classList.remove('show'),3500)}
+function setSync(text,type=''){el.syncText.textContent=text;el.syncBadge.dataset.state=type}
+function csvEscape(v){const s=String(v??'');return /[",\r\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s}
+function rowsToCsv(rows){return rows.map(r=>r.map(csvEscape).join(',')).join('\n')}
+function parseCsv(text){const rows=[];let row=[],field='',q=false;for(let i=0;i<text.length;i++){const c=text[i];if(q){if(c==='"'&&text[i+1]==='"'){field+='"';i++}else if(c==='"')q=false;else field+=c}else if(c==='"')q=true;else if(c===','){row.push(field);field=''}else if(c==='\n'){row.push(field.replace(/\r$/,''));rows.push(row);row=[];field=''}else field+=c}if(field||row.length){row.push(field.replace(/\r$/,''));rows.push(row)}return rows}
+function fetchWithTimeout(url,options={},ms=16000){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);return fetch(url,{...options,signal:c.signal}).finally(()=>clearTimeout(t))}
+async function getCsv(room){let err;for(const url of [`${BASE}/_/${encodeURIComponent(room)}/csv?t=${Date.now()}`,`${BASE}/=${encodeURIComponent(room)}.csv?t=${Date.now()}`]){try{const r=await fetchWithTimeout(url,{cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.text()}catch(e){err=e}}throw err||new Error('Citire eșuată')}
+async function putCsv(room,csv){let err;for(const body of [csv,'\uFEFF'+csv]){try{const r=await fetchWithTimeout(`${BASE}/_/${encodeURIComponent(room)}`,{method:'PUT',cache:'no-store',headers:{'Content-Type':'text/csv;charset=UTF-8'},body},22000);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.text()}catch(e){err=e}}throw err||new Error('Scriere eșuată')}
+
+function normalizeRecord(obj){
+  const rec={};HEADER.forEach(h=>rec[h]=String(obj[h]??''));
+  rec.progress=String(Math.max(0,Math.min(100,Number(rec.progress)||0)));
+  if(rec.record_type==='task'){
+    rec.comments=safeJson(rec.comments_json,[]);rec.history=safeJson(rec.history_json,[]);
+    rec.assigneesList=rec.assignees?rec.assignees.split('|').map(x=>x.trim()).filter(Boolean):[];
+    rec.tagsList=rec.tags?rec.tags.split('|').map(x=>x.trim()).filter(Boolean):[];
+  }
+  if(rec.record_type==='member')rec.extra=safeJson(rec.extra_json,{});
+  if(rec.record_type==='project'){rec.extra=safeJson(rec.extra_json,{});rec.assigneesList=rec.assignees?rec.assignees.split('|').map(x=>x.trim()).filter(Boolean):[]}
+  return rec;
+}
+function parseSheet(csv,scope){
+  const rows=parseCsv(csv).filter(r=>r.some(x=>String(x??'').trim()!==''));
+  if(!rows.length)return {records:[],blank:true,safe:true};
+  const header=rows[0].map(x=>String(x??'').trim().toLowerCase());
+  if(!header.includes('record_type')||!header.includes('id'))return {records:[],blank:false,safe:false,header};
+  const ix=h=>header.indexOf(h);
+  const records=rows.slice(1).map(r=>{const o={};HEADER.forEach(h=>o[h]=ix(h)>=0?r[ix(h)]??'':'');return normalizeRecord(o)}).filter(r=>r.id&&r.record_type);
+  return {records,blank:false,safe:true};
+}
+function serializeRecord(r){return HEADER.map(h=>{
+  if(h==='comments_json')return JSON.stringify(r.comments||safeJson(r.comments_json,[]));
+  if(h==='history_json')return JSON.stringify(r.history||safeJson(r.history_json,[]));
+  if(h==='extra_json')return JSON.stringify(r.extra||safeJson(r.extra_json,{}));
+  if(h==='assignees'&&Array.isArray(r.assigneesList))return r.assigneesList.join('|');
+  if(h==='tags'&&Array.isArray(r.tagsList))return r.tagsList.join('|');
+  return r[h]??'';
+})}
+function sheetCsv(scope){return rowsToCsv([HEADER,...state.sheets[scope].map(serializeRecord)])}
+
+function seedRecords(scope){
+  const now=nowISO(), out=[];
+  if(scope==='team')DEFAULT_MEMBERS.forEach(m=>out.push(normalizeRecord({record_type:'member',id:uid(),title:m.code,description:m.name,status:'Active',created_at:now,updated_at:now,extra_json:JSON.stringify({role:m.role})})));
+  if(scope==='projects')DEFAULT_PROJECTS.forEach(([group,name])=>out.push(normalizeRecord({record_type:'project',id:uid(),title:name,status:'Active',project_group:group,project_name:name,created_at:now,updated_at:now,extra_json:'{}'})));
+  return out;
+}
+async function initializeBlank(scope){const seeded=seedRecords(scope);state.sheets[scope]=seeded;await putCsv(SHEETS[scope].room,sheetCsv(scope))}
+async function syncAll({notify=false}={}){
+  if(state.syncing||state.saving)return;state.syncing=true;setSync('Sincronizare…','');
+  try{
+    for(const scope of ['personal','team','projects']){
+      const csv=await getCsv(SHEETS[scope].room);const p=parseSheet(csv,scope);
+      if(!p.safe){state.unsafeSheets.add(scope);continue}
+      state.unsafeSheets.delete(scope);
+      if(p.blank){await initializeBlank(scope)}else state.sheets[scope]=p.records;
+    }
+    state.lastSync=nowISO();renderAll();
+    if(state.unsafeSheets.size){setSync('Structură foaie incompatibilă','error');if(notify)showToast('Cel puțin o foaie conține deja date într-un format diferit. Nu am suprascris-o.')}
+    else{setSync('Live · actualizat','ok');if(notify)showToast('Date sincronizate cu succes.')}
+  }catch(err){console.error(err);setSync('Offline / eroare sync','error');if(notify)showToast(`Sincronizarea a eșuat: ${err.message}`)}finally{state.syncing=false}
+}
+async function saveScope(scope,message='Salvat'){
+  if(state.unsafeSheets.has(scope)){showToast('Foaia are o structură incompatibilă și nu este suprascrisă pentru protecția datelor.');return false}
+  state.saving=true;setSync('Salvare…','');
+  try{
+    await putCsv(SHEETS[scope].room,sheetCsv(scope));
+    await new Promise(r=>setTimeout(r,700));
+    const p=parseSheet(await getCsv(SHEETS[scope].room),scope);
+    if(!p.safe)throw new Error('Structura foii nu poate fi verificată.');
+    const localIds=new Set(state.sheets[scope].map(x=>x.id));const remoteIds=new Set(p.records.map(x=>x.id));
+    if([...localIds].some(id=>!remoteIds.has(id)))throw new Error('EtherCalc nu a confirmat toate înregistrările.');
+    state.sheets[scope]=p.records;state.lastSync=nowISO();setSync('Live · salvat','ok');renderAll();showToast(message);return true;
+  }catch(err){console.error(err);setSync('Eroare salvare','error');showToast(`Salvarea a eșuat: ${err.message}`);return false}finally{state.saving=false}
+}
+
+function records(scope=state.scope){return state.sheets[scope]||[]}
+function tasks(scope=state.scope){return records(scope).filter(r=>r.record_type==='task')}
+function teamMembers(){return state.sheets.team.filter(r=>r.record_type==='member'&&r.status!=='Inactive').map(r=>({id:r.id,code:r.title,name:r.description,role:r.extra?.role||''}))}
+function projects(){return state.sheets.projects.filter(r=>r.record_type==='project'&&r.status!=='Archived')}
+function memberLabel(code){const m=teamMembers().find(x=>x.code===code);return m?.name?`${m.code} · ${m.name}`:(code||'—')}
+function latestComment(task){return [...(task.comments||[])].sort((a,b)=>String(b.at).localeCompare(String(a.at)))[0]}
+function changed(task,field,from,to,by='User'){task.history=task.history||[];task.history.push({id:uid(),at:nowISO(),by,field,from:String(from??''),to:String(to??'')})}
+function visibleTasks(){
+  let list=[...tasks()];const q=el.searchInput.value.trim().toLowerCase(),status=el.statusFilter.value,owner=el.ownerFilter.value,project=el.projectFilter.value;
+  if(state.scope==='team'&&state.selectedContext!=='all')list=list.filter(t=>t.owner===state.selectedContext||t.assigneesList.includes(state.selectedContext));
+  if(state.scope==='personal'&&state.quickFilter==='today')list=list.filter(t=>t.start_date===todayISO()||t.due_date===todayISO());
+  if(state.scope==='personal'&&state.quickFilter==='overdue')list=list.filter(isOverdue);
+  if(state.scope==='personal'&&state.quickFilter==='done')list=list.filter(t=>t.status==='Done');
+  if(state.scope==='projects'&&state.selectedContext!=='all')list=list.filter(t=>t.project_name===state.selectedContext||t.project_group===state.selectedContext);
+  if(q)list=list.filter(t=>[t.title,t.description,t.owner,t.project_group,t.project_name,...t.tagsList,...t.assigneesList].join(' ').toLowerCase().includes(q));
+  if(status)list=list.filter(t=>t.status===status);if(owner)list=list.filter(t=>t.owner===owner||t.assigneesList.includes(owner));if(project)list=list.filter(t=>t.project_name===project);
+  const sort=el.sortSelect.value;
+  list.sort((a,b)=>sort==='due'?(a.due_date||'9999').localeCompare(b.due_date||'9999'):sort==='priority'?(PRIORITY_ORDER[b.priority]||0)-(PRIORITY_ORDER[a.priority]||0):sort==='progress'?Number(b.progress)-Number(a.progress):String(b.updated_at).localeCompare(String(a.updated_at)));
+  return list;
+}
+
+function renderAll(){renderHeader();renderScopeText();renderFilters();renderSummary();renderRail();renderTasks();renderSheetLinks()}
+function renderHeader(){
+  const all=['personal','team','projects'].flatMap(s=>tasks(s));const open=all.filter(t=>!['Done','Cancelled'].includes(t.status)).length,done=all.filter(t=>t.status==='Done').length,delayed=all.filter(t=>t.status==='Delayed'||t.status==='Blocked'||isOverdue(t)).length,avg=all.length?Math.round(all.reduce((s,t)=>s+Number(t.progress||0),0)/all.length):0;
+  el.heroKpis.innerHTML=[['Task-uri active',open,'în toate categoriile',''],['Finalizate',done,'status Done',''],['Întârziate / blocate',delayed,'necesită atenție','is-alert'],['Progres mediu',`${avg}%`,'toate task-urile','']].map(x=>`<div class="hero-kpi ${x[3]}"><span>${x[0]}</span><strong>${x[1]}</strong><small>${x[2]}</small></div>`).join('');
+  el.personalCount.textContent=`${tasks('personal').length} task-uri`;el.teamCount.textContent=`${tasks('team').length} task-uri`;el.projectsCount.textContent=`${tasks('projects').length} task-uri`;
+}
+function renderScopeText(){
+  const copy={personal:['PERSONALE','Task-urile mele','Planificare, follow-up și progres personal.'],team:['ECHIPĂ','Task-urile echipei','Responsabilități, workload și update-uri pentru fiecare membru.'],projects:['PROIECTE','Portofoliu proiecte','Linii de producție, proiecte fabrică, globale și Palantir.']}[state.scope];
+  el.scopeEyebrow.textContent=copy[0];el.scopeTitle.textContent=copy[1];el.scopeSubtitle.textContent=copy[2];el.addMember.hidden=!['team','projects'].includes(state.scope);el.addMember.textContent=state.scope==='projects'?'＋ Membru proiect':'＋ Membru';el.addProject.hidden=state.scope!=='projects';
+}
+function renderFilters(){
+  const current={status:el.statusFilter.value,owner:el.ownerFilter.value,project:el.projectFilter.value};
+  el.statusFilter.innerHTML='<option value="">Toate statusurile</option>'+STATUSES.map(x=>`<option>${esc(x)}</option>`).join('');
+  const members=teamMembers();el.ownerFilter.innerHTML='<option value="">Toți responsabilii</option>'+members.map(m=>`<option value="${esc(m.code)}">${esc(memberLabel(m.code))}</option>`).join('');
+  const ps=projects();el.projectFilter.innerHTML='<option value="">Toate proiectele</option>'+ps.map(p=>`<option value="${esc(p.project_name)}">${esc(p.project_group)} · ${esc(p.project_name)}</option>`).join('');
+  if([...el.statusFilter.options].some(o=>o.value===current.status))el.statusFilter.value=current.status;if([...el.ownerFilter.options].some(o=>o.value===current.owner))el.ownerFilter.value=current.owner;if([...el.projectFilter.options].some(o=>o.value===current.project))el.projectFilter.value=current.project;
+}
+function renderSummary(){
+  const list=tasks(),active=list.filter(t=>!['Done','Cancelled'].includes(t.status)),open=list.filter(t=>['Backlog','Open'].includes(t.status)).length,prog=list.filter(t=>t.status==='In Progress').length,del=list.filter(t=>t.status==='Delayed'||t.status==='Blocked'||isOverdue(t)).length,done=list.filter(t=>t.status==='Done').length,due=list.filter(t=>{const d=daysUntil(t.due_date);return d>=0&&d<=7&&t.status!=='Done'}).length;
+  const cards=[['Open / Backlog',open,'de pornit','open'],['In Progress',prog,'în lucru','progress'],['Delayed / Blocked',del,'atenție','delayed'],['Done',done,`${list.length?Math.round(done/list.length*100):0}% din total`,'done'],['Due ≤ 7 zile',due,`${active.length} active`,'due']];
+  el.summaryGrid.innerHTML=cards.map(c=>`<article class="summary-card" data-tone="${c[3]}"><div class="summary-top"><span>${c[0]}</span><i></i></div><strong>${c[1]}</strong><small>${c[2]}</small></article>`).join('');
+}
+function renderRail(){
+  let html='<div class="rail-heading"><h3>Focus</h3>'+(state.scope==='team'?'<button class="rail-add" data-action="member">+</button>':state.scope==='projects'?'<button class="rail-add" data-action="project">+</button>':'')+'</div><div class="rail-list">';
+  html+=`<button class="rail-item ${state.selectedContext==='all'?'active':''}" data-context="all"><span class="avatar">ALL</span><strong>Toate</strong><small>${tasks().length}</small></button>`;
+  if(state.scope==='personal'){
+    [['Azi','today'],['Întârziate','overdue'],['Done','done']].forEach(([label,key])=>html+=`<button class="rail-item" data-quick="${key}"><span class="avatar">${label[0]}</span><strong>${label}</strong><small></small></button>`);
+  }else if(state.scope==='team'){
+    teamMembers().forEach(m=>{const n=tasks().filter(t=>t.owner===m.code||t.assigneesList.includes(m.code)).length;html+=`<button class="rail-item ${state.selectedContext===m.code?'active':''}" data-context="${esc(m.code)}"><span class="avatar">${esc(m.code)}</span><strong>${esc(m.name||m.code)}</strong><small>${n}</small></button>`});
+  }else{
+    PROJECT_GROUPS.forEach(g=>{html+=`<div class="rail-group-title">${esc(g)}</div>`;projects().filter(p=>p.project_group===g).forEach(p=>{const n=tasks().filter(t=>t.project_name===p.project_name).length;html+=`<button class="rail-item ${state.selectedContext===p.project_name?'active':''}" data-context="${esc(p.project_name)}"><span class="avatar">${esc(p.project_name.slice(0,2).toUpperCase())}</span><strong>${esc(p.project_name)}</strong><small>${n}</small></button>`})});
+  }
+  html+='</div>';el.contextRail.innerHTML=html;
+}
+function renderTasks(){const list=visibleTasks();el.taskTableWrap.hidden=state.view!=='table'||!list.length;el.kanbanBoard.hidden=state.view!=='board'||!list.length;el.emptyState.hidden=!!list.length;if(state.view==='table')renderTable(list);else renderKanban(list)}
+function renderTable(list){el.taskTable.innerHTML=list.map(t=>{
+  const lc=latestComment(t);const overdue=isOverdue(t);return `<div class="task-row" data-id="${esc(t.id)}"><div class="task-main" data-open="${esc(t.id)}"><div class="task-titleline"><i class="priority-dot ${esc(t.priority)}"></i><strong>${esc(t.title)}</strong></div><small>${esc(t.project_name?`${t.project_group} · ${t.project_name}`:(t.tagsList.join(' · ')||t.description||'Fără descriere'))}</small></div><div class="owner-chip"><span class="owner-avatar">${esc((t.owner||'—').slice(0,3))}</span><span>${esc(memberLabel(t.owner))}</span></div><div><span class="status-chip" data-status="${esc(t.status)}">${esc(t.status||'Open')}</span></div><div class="progress-cell"><div class="progress-track"><div class="progress-bar" style="width:${Number(t.progress)||0}%"></div></div><span>${Number(t.progress)||0}%</span></div><div class="date-cell">${fmtDate(t.start_date)}</div><div class="date-cell ${overdue?'overdue':''}">${fmtDate(t.due_date)}</div><div class="update-cell">${esc(lc?relativeUpdate(lc.at):relativeUpdate(t.updated_at))}</div><button class="row-menu" data-edit="${esc(t.id)}" title="Editează">⋯</button></div>`
+  }).join('')}
+function renderKanban(list){const cols=[['Backlog / Open',['Backlog','Open']],['In Progress',['In Progress']],['Waiting / Blocked',['Waiting','Blocked','Delayed']],['Done',['Done','Cancelled']]];el.kanbanBoard.innerHTML=cols.map(([label,ss])=>{const items=list.filter(t=>ss.includes(t.status));return `<section class="kanban-col"><div class="kanban-head"><strong>${label}</strong><span>${items.length}</span></div><div class="kanban-list">${items.map(t=>`<article class="kanban-card" data-open="${esc(t.id)}"><strong>${esc(t.title)}</strong><p>${esc(t.project_name||t.description||'Fără descriere')}</p><div class="kanban-card-foot"><span>${esc(t.owner||'—')}</span><span>${Number(t.progress)||0}%</span></div></article>`).join('')}</div></section>`}).join('')}
+function renderSheetLinks(){el.sheetLinks.innerHTML=Object.entries(SHEETS).map(([k,s])=>`<a href="${s.url}" target="_blank" rel="noopener">${s.label} ↗</a>`).join('')}
+
+function populateTaskDialog(task=null){
+  const edit=!!task;el.taskDialogTitle.textContent=edit?'Editează task':'Task nou';el.taskId.value=task?.id||'';el.taskTitle.value=task?.title||'';el.taskDescription.value=task?.description||'';
+  el.taskStatus.innerHTML=STATUSES.map(s=>`<option>${s}</option>`).join('');el.taskStatus.value=task?.status||'Open';el.taskPriority.value=task?.priority||'Medium';el.taskProgress.value=Number(task?.progress||0);el.taskStart.value=task?.start_date||todayISO();el.taskDue.value=task?.due_date||'';el.taskTags.value=(task?.tagsList||[]).join(', ');
+  const members=teamMembers();el.taskOwner.innerHTML='<option value="">— Fără owner —</option>'+members.map(m=>`<option value="${esc(m.code)}">${esc(memberLabel(m.code))}</option>`).join('');el.taskOwner.value=task?.owner||'';
+  el.taskAssignees.innerHTML=members.length?members.map(m=>`<label class="check-chip"><input type="checkbox" value="${esc(m.code)}" ${(task?.assigneesList||[]).includes(m.code)?'checked':''}> ${esc(memberLabel(m.code))}</label>`).join(''):'<span style="font-size:.6rem;color:#8d98a9">Adaugă membri din secțiunea Echipă.</span>';
+  el.taskProjectGroup.innerHTML='<option value="">—</option>'+PROJECT_GROUPS.map(g=>`<option>${g}</option>`).join('');el.taskProjectGroup.value=task?.project_group||'';updateProjectOptions(task?.project_name||'');
+  el.taskProjectGroupField.hidden=state.scope!=='projects';el.taskProjectField.hidden=state.scope!=='projects';el.deleteTask.hidden=!edit;el.taskDialog.showModal();setTimeout(()=>el.taskTitle.focus(),30)
+}
+function updateProjectOptions(selected=''){const group=el.taskProjectGroup.value;const ps=projects().filter(p=>!group||p.project_group===group);el.taskProject.innerHTML='<option value="">— Fără proiect —</option>'+ps.map(p=>`<option value="${esc(p.project_name)}">${esc(p.project_name)}</option>`).join('');if([...el.taskProject.options].some(o=>o.value===selected))el.taskProject.value=selected}
+function openTask(id){const t=tasks().find(x=>x.id===id);if(t)populateTaskDialog(t)}
+async function handleTaskSubmit(e){
+  e.preventDefault();const title=el.taskTitle.value.trim();if(!title){showToast('Titlul task-ului este obligatoriu.');return}
+  const id=el.taskId.value||uid(),old=tasks().find(x=>x.id===id),now=nowISO(),status=el.taskStatus.value,progress=Math.max(0,Math.min(100,Number(el.taskProgress.value)||0));
+  const selectedAssignees=$$('#taskAssignees input:checked').map(x=>x.value);const tags=el.taskTags.value.split(',').map(x=>x.trim()).filter(Boolean);
+  const rec=normalizeRecord({record_type:'task',id,title,description:el.taskDescription.value.trim(),status,priority:el.taskPriority.value,progress,start_date:el.taskStart.value,due_date:el.taskDue.value,owner:el.taskOwner.value,assignees:selectedAssignees.join('|'),project_group:state.scope==='projects'?el.taskProjectGroup.value:'',project_name:state.scope==='projects'?el.taskProject.value:'',tags:tags.join('|'),created_at:old?.created_at||now,updated_at:now,completed_at:status==='Done'?(old?.completed_at||now):'',comments_json:JSON.stringify(old?.comments||[]),history_json:JSON.stringify(old?.history||[])});
+  if(old){rec.comments=old.comments||[];rec.history=[...(old.history||[])];['title','description','status','priority','progress','start_date','due_date','owner','assignees','project_group','project_name','tags'].forEach(f=>{const ov=f==='tags'?(old.tagsList||[]).join('|'):f==='assignees'?(old.assigneesList||[]).join('|'):old[f],nv=f==='tags'?tags.join('|'):f==='assignees'?selectedAssignees.join('|'):rec[f];if(String(ov??'')!==String(nv??''))changed(rec,f,ov,nv)});if(status==='Done'&&old.status!=='Done')rec.progress='100'}else{rec.comments=[];rec.history=[{id:uid(),at:now,by:'User',field:'created',from:'',to:'Task creat'}]}
+  const idx=state.sheets[state.scope].findIndex(r=>r.id===id);if(idx>=0)state.sheets[state.scope][idx]=rec;else state.sheets[state.scope].push(rec);el.taskDialog.close();renderAll();await saveScope(state.scope,old?'Task actualizat.':'Task adăugat.');
+}
+async function deleteCurrentTask(){const id=el.taskId.value;if(!id)return;const t=tasks().find(x=>x.id===id);if(!t||!confirm(`Ștergi task-ul „${t.title}”?`))return;state.sheets[state.scope]=state.sheets[state.scope].filter(r=>r.id!==id);el.taskDialog.close();renderAll();await saveScope(state.scope,'Task șters.')}
+
+function openDetail(id){const t=tasks().find(x=>x.id===id);if(!t)return;state.detailTaskId=id;el.detailTitle.textContent=t.title;const lc=latestComment(t);el.detailMeta.innerHTML=[['Status',t.status],['Progres',`${Number(t.progress)||0}%`],['Owner',memberLabel(t.owner)],['Start',fmtDate(t.start_date)],['Deadline',fmtDate(t.due_date)],['Ultimul update',lc?fmtDateTime(lc.at):fmtDateTime(t.updated_at)]].map(([a,b])=>`<div class="meta-card"><span>${a}</span><strong>${esc(b)}</strong></div>`).join('');renderDetailTimelines(t);el.commentProgress.value=t.progress||0;if(!el.detailDialog.open)el.detailDialog.showModal()}
+function renderDetailTimelines(t){
+  const comments=[...(t.comments||[])].sort((a,b)=>String(b.at).localeCompare(String(a.at)));el.commentTimeline.innerHTML=comments.length?comments.map(c=>`<div class="timeline-item" data-type="${esc(c.type||'note')}"><i class="timeline-dot"></i><div class="timeline-card"><div class="timeline-top"><strong>${esc(({progress:'Progress',note:'Notă',blocker:'Blocker',decision:'Decizie'}[c.type]||c.type))}${c.progress!==''&&c.progress!=null?` · ${esc(c.progress)}%`:''}</strong><time>${esc(fmtDateTime(c.at))}</time></div><p>${esc(c.text)}</p><small>${esc(c.by||'User')}</small></div></div>`).join(''):'<div class="timeline-empty">Nu există update-uri încă. Adaugă primul progres săptămânal.</div>';
+  const history=[...(t.history||[])].sort((a,b)=>String(b.at).localeCompare(String(a.at)));el.historyTimeline.innerHTML=history.length?history.map(h=>`<div class="timeline-item"><i class="timeline-dot"></i><div class="timeline-card"><div class="timeline-top"><strong>${esc(h.field==='created'?'Task creat':`Modificat: ${h.field}`)}</strong><time>${esc(fmtDateTime(h.at))}</time></div>${h.field==='created'?`<p>${esc(h.to)}</p>`:`<p>${esc(h.from||'—')} → ${esc(h.to||'—')}</p>`}<small>${esc(h.by||'User')}</small></div></div>`).join(''):'<div class="timeline-empty">Fără istoric.</div>'
+}
+async function addComment(e){e.preventDefault();const text=el.commentText.value.trim();if(!text)return;const t=tasks().find(x=>x.id===state.detailTaskId);if(!t)return;const pRaw=el.commentProgress.value,progress=pRaw===''?'':Math.max(0,Math.min(100,Number(pRaw)||0));t.comments=t.comments||[];t.comments.push({id:uid(),at:nowISO(),by:'User',type:el.commentType.value,progress,text});if(progress!==''){if(String(t.progress)!==String(progress))changed(t,'progress',t.progress,progress);t.progress=String(progress);if(progress>0&&['Backlog','Open'].includes(t.status)){changed(t,'status',t.status,'In Progress');t.status='In Progress'}if(progress===100&&t.status!=='Done'){changed(t,'status',t.status,'Done');t.status='Done';t.completed_at=nowISO()}}t.updated_at=nowISO();el.commentText.value='';renderAll();openDetail(t.id);await saveScope(state.scope,'Update de progres adăugat.')}
+async function markDone(){const t=tasks().find(x=>x.id===state.detailTaskId);if(!t||t.status==='Done')return;if(t.status!=='Done')changed(t,'status',t.status,'Done');if(String(t.progress)!=='100')changed(t,'progress',t.progress,'100');t.status='Done';t.progress='100';t.completed_at=t.completed_at||nowISO();t.updated_at=nowISO();renderAll();openDetail(t.id);await saveScope(state.scope,'Task marcat Done.')}
+
+function openMemberDialog(){el.memberForm.reset();el.memberDialog.showModal();setTimeout(()=>el.memberCode.focus(),30)}
+async function addMemberSubmit(e){e.preventDefault();const code=el.memberCode.value.trim().toUpperCase();if(!code)return;if(teamMembers().some(m=>m.code.toUpperCase()===code)){showToast('Membrul există deja.');return}const now=nowISO();state.sheets.team.push(normalizeRecord({record_type:'member',id:uid(),title:code,description:el.memberName.value.trim(),status:'Active',created_at:now,updated_at:now,extra_json:JSON.stringify({role:el.memberRole.value.trim()})}));el.memberDialog.close();renderAll();await saveScope('team','Membru adăugat în echipă.')}
+function renderProjectMemberChecks(){el.projectMembers.innerHTML=teamMembers().map(m=>`<label class="check-chip"><input type="checkbox" value="${esc(m.code)}"> ${esc(memberLabel(m.code))}</label>`).join('')||'<span style="font-size:.6rem;color:#8d98a9">Adaugă mai întâi membri în Echipă.</span>'}
+function openProjectDialog(){el.projectForm.reset();el.projectGroup.innerHTML=PROJECT_GROUPS.map(g=>`<option>${g}</option>`).join('');renderProjectMemberChecks();el.projectDialog.showModal();setTimeout(()=>el.projectName.focus(),30)}
+async function addProjectSubmit(e){e.preventDefault();const group=el.projectGroup.value,name=el.projectName.value.trim();if(!name)return;if(projects().some(p=>p.project_group===group&&p.project_name.toLowerCase()===name.toLowerCase())){showToast('Proiectul există deja în această categorie.');return}const now=nowISO(),members=$$('#projectMembers input:checked').map(x=>x.value);state.sheets.projects.push(normalizeRecord({record_type:'project',id:uid(),title:name,status:'Active',project_group:group,project_name:name,assignees:members.join('|'),created_at:now,updated_at:now,extra_json:'{}'}));el.projectDialog.close();renderAll();await saveScope('projects','Proiect adăugat.')}
+
+function openProjectMemberDialog(){
+  const ps=projects();if(!ps.length){showToast('Adaugă mai întâi un proiect.');return}
+  el.projectMemberProject.innerHTML=ps.map(p=>`<option value="${esc(p.id)}">${esc(p.project_group)} · ${esc(p.project_name)}</option>`).join('');
+  const preferred=ps.find(p=>p.project_name===state.selectedContext);if(preferred)el.projectMemberProject.value=preferred.id;renderProjectMemberAssignment();el.projectMemberDialog.showModal();
+}
+function renderProjectMemberAssignment(){
+  const p=projects().find(x=>x.id===el.projectMemberProject.value);const assigned=p?.assigneesList||[];const ms=teamMembers();el.projectMemberChecks.innerHTML=ms.length?ms.map(m=>`<label class="check-chip"><input type="checkbox" value="${esc(m.code)}" ${assigned.includes(m.code)?'checked':''}> ${esc(memberLabel(m.code))}</label>`).join(''):'<span style="font-size:.6rem;color:#8d98a9">Adaugă mai întâi membri în Echipă.</span>';
+}
+async function projectMemberSubmit(e){
+  e.preventDefault();const p=projects().find(x=>x.id===el.projectMemberProject.value);if(!p)return;const members=$$('#projectMemberChecks input:checked').map(x=>x.value);const before=(p.assigneesList||[]).join('|');p.assigneesList=members;p.assignees=members.join('|');p.updated_at=nowISO();p.extra=p.extra||{};p.extra.last_members_update=nowISO();if(before!==p.assignees){}el.projectMemberDialog.close();renderAll();await saveScope('projects','Membrii proiectului au fost actualizați.');
+}
+
+function exportExcel(){
+  if(typeof XLSX==='undefined'){showToast('Modulul Excel nu este disponibil.');return}const list=tasks();const rows=list.map(t=>({Task:t.title,Descriere:t.description,Status:t.status,Prioritate:t.priority,'Progres %':Number(t.progress)||0,'Data start':t.start_date,Deadline:t.due_date,Owner:t.owner,'Participanți':t.assigneesList.join(', '),'Categorie proiect':t.project_group,Proiect:t.project_name,Taguri:t.tagsList.join(', '),'Creat la':t.created_at,'Actualizat la':t.updated_at,'Finalizat la':t.completed_at,'Nr. update-uri':(t.comments||[]).length}));
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet(rows);ws['!cols']=[{wch:34},{wch:45},{wch:15},{wch:12},{wch:11},{wch:12},{wch:12},{wch:14},{wch:28},{wch:24},{wch:22},{wch:26},{wch:22},{wch:22},{wch:22},{wch:14}];XLSX.utils.book_append_sheet(wb,ws,'Task-uri');
+  const updates=[];list.forEach(t=>(t.comments||[]).forEach(c=>updates.push({Task:t.title,Proiect:t.project_name,Tip:c.type,'Progres %':c.progress,Comentariu:c.text,Data:c.at,Autor:c.by||'User'})));if(updates.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(updates),'Progress & comentarii');
+  if(state.scope==='team')XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(teamMembers().map(m=>({Cod:m.code,Nume:m.name,Rol:m.role}))),'Membri');
+  if(state.scope==='projects')XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(projects().map(p=>({Categorie:p.project_group,Proiect:p.project_name,Membri:p.assigneesList.join(', '),Status:p.status}))),'Proiecte');
+  XLSX.writeFile(wb,`taskflow_${state.scope}_${todayISO()}.xlsx`)
+}
+
+function switchScope(scope){state.scope=scope;state.selectedContext='all';state.quickFilter='';$$('.tab').forEach(b=>b.classList.toggle('active',b.dataset.scope===scope));el.searchInput.value='';el.statusFilter.value='';el.ownerFilter.value='';el.projectFilter.value='';renderAll()}
+function bind(){
+  $$('.tab').forEach(b=>b.onclick=()=>switchScope(b.dataset.scope));$$('.view-btn').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;$$('.view-btn').forEach(x=>x.classList.toggle('active',x===b));renderTasks()});
+  [el.searchInput,el.statusFilter,el.ownerFilter,el.projectFilter,el.sortSelect].forEach(x=>x.addEventListener(x.tagName==='INPUT'?'input':'change',renderTasks));
+  [el.addTask,el.openTaskTop,el.emptyAdd].forEach(b=>b.onclick=()=>populateTaskDialog());el.addMember.onclick=()=>state.scope==='projects'?openProjectMemberDialog():openMemberDialog();el.addProject.onclick=openProjectDialog;el.downloadExcel.onclick=exportExcel;el.syncNow.onclick=()=>syncAll({notify:true});
+  el.contextRail.onclick=e=>{const a=e.target.closest('[data-action]'),c=e.target.closest('[data-context]'),q=e.target.closest('[data-quick]');if(a?.dataset.action==='member')openMemberDialog();if(a?.dataset.action==='project')openProjectDialog();if(c){state.selectedContext=c.dataset.context;state.quickFilter='';renderRail();renderTasks()}if(q){state.selectedContext='all';state.quickFilter=q.dataset.quick;el.statusFilter.value='';el.searchInput.value='';if(q.dataset.quick==='overdue')el.sortSelect.value='due';renderRail();renderTasks()}};
+  document.addEventListener('click',e=>{const o=e.target.closest('[data-open]'),ed=e.target.closest('[data-edit]');if(o)openDetail(o.dataset.open);if(ed)openTask(ed.dataset.edit)});
+  el.taskProjectGroup.onchange=()=>updateProjectOptions();el.taskForm.addEventListener('submit',handleTaskSubmit);el.deleteTask.onclick=deleteCurrentTask;el.closeTask.onclick=el.cancelTask.onclick=()=>el.taskDialog.close();
+  el.closeDetail.onclick=()=>el.detailDialog.close();el.commentForm.addEventListener('submit',addComment);el.editFromDetail.onclick=()=>{const id=state.detailTaskId;el.detailDialog.close();openTask(id)};el.doneFromDetail.onclick=markDone;
+  el.memberForm.addEventListener('submit',addMemberSubmit);el.closeMember.onclick=el.cancelMember.onclick=()=>el.memberDialog.close();el.projectForm.addEventListener('submit',addProjectSubmit);el.closeProject.onclick=el.cancelProject.onclick=()=>el.projectDialog.close();el.projectMemberForm.addEventListener('submit',projectMemberSubmit);el.projectMemberProject.onchange=renderProjectMemberAssignment;el.closeProjectMember.onclick=el.cancelProjectMember.onclick=()=>el.projectMemberDialog.close();
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncAll()});window.addEventListener('online',()=>syncAll({notify:true}));setInterval(()=>{if(!document.hidden&&!state.saving)syncAll()},SYNC_MS)
+}
+
+function boot(){el.statusFilter.innerHTML='<option value="">Toate statusurile</option>'+STATUSES.map(s=>`<option>${s}</option>`).join('');renderAll();bind();syncAll()}
+boot();
